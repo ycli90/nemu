@@ -15,6 +15,7 @@
 
 #include <isa.h>
 #include "local-include/reg.h"
+#include <difftest-def.h>
 
 const char *regs[] = {
   "$0", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
@@ -24,8 +25,25 @@ const char *regs[] = {
 };
 
 void isa_reg_display() {
+  printf("%-8s" FMT_WORD "\n", "pc", cpu.pc);
+  for (int idx = 0; idx < RISCV_GPR_NUM; idx++) {
+    word_t val = gpr(idx);
+    printf("%-8s" FMT_WORD "\n", reg_name(idx), val);
+  }
 }
 
 word_t isa_reg_str2val(const char *s, bool *success) {
+  *success = false;
+  if (s == NULL) return 0;
+  for (int idx = 0; idx < RISCV_GPR_NUM; idx++) {
+    if (strcmp(s, regs[idx]) == 0) {
+      *success = true;
+      return gpr(idx);
+    }
+  }
+  if (strcmp(s, "pc") == 0) {
+    *success = true;
+    return cpu.pc;
+  }
   return 0;
 }

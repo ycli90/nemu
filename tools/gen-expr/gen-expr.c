@@ -20,9 +20,11 @@
 #include <assert.h>
 #include <string.h>
 
+#define MAX_BUF_LEN 65536
+
 // this should be enough
-static char buf[65536] = {};
-static char code_buf[65536 + 128] = {}; // a little larger than `buf`
+static char buf[MAX_BUF_LEN] = {};
+static char code_buf[MAX_BUF_LEN + 128] = {}; // a little larger than `buf`
 static char *code_format =
 "#include <stdio.h>\n"
 "int main() { "
@@ -31,8 +33,56 @@ static char *code_format =
 "  return 0; "
 "}";
 
+static int level = 0;
+static int p = 0;
+const char * ops[] = {"+", "-", "*", "/"};
+
+static inline int is_enough_space() {
+  return MAX_BUF_LEN - p >= 12 * level + 11 + 1;
+}
+
+void gen(const char *str) {
+  int len = strlen(str);
+  if (p + len < MAX_BUF_LEN) {
+    strcpy(buf + p, str);
+    p += len;
+  } else {
+    printf("gen expression too long\n");
+  }
+}
+
+void gen_num() {
+  char temp_str[16];
+  int n = rand();
+  sprintf(temp_str, "%du", n);
+  gen(temp_str);
+}
+
+void gen_rand_op() {
+  int i = rand() % 4;
+  gen(ops[i]);
+}
+
+void gen_blank() {
+  if (!is_enough_space()) return;
+  switch (rand() % 3) {
+    case 0: gen(" "); break;
+    default: break;
+  }
+}
+
 static void gen_rand_expr() {
-  buf[0] = '\0';
+  level++;
+  gen_blank();
+  int n = is_enough_space() ? 3 : 1;
+  switch (rand() % n) {
+    case 0: gen_num(); break;
+    case 1: gen("("); gen_rand_expr(); gen(")"); break;
+    default: gen_rand_expr(); gen_rand_op(); gen_rand_expr(); break;
+  }
+  gen_blank();
+  level--;
+  buf[p] = '\0';
 }
 
 int main(int argc, char *argv[]) {
@@ -44,7 +94,11 @@ int main(int argc, char *argv[]) {
   }
   int i;
   for (i = 0; i < loop; i ++) {
+    if (i % 100 == 0) fprintf(stderr, "generated %d\n", i);
+    assert(level == 0);
+    p = 0;
     gen_rand_expr();
+    assert(p < MAX_BUF_LEN);
 
     sprintf(code_buf, code_format, buf);
 
@@ -53,7 +107,7 @@ int main(int argc, char *argv[]) {
     fputs(code_buf, fp);
     fclose(fp);
 
-    int ret = system("gcc /tmp/.code.c -o /tmp/.expr");
+    int ret = system("gcc -Werror /tmp/.code.c -o /tmp/.expr");
     if (ret != 0) continue;
 
     fp = popen("/tmp/.expr", "r");
@@ -63,6 +117,13 @@ int main(int argc, char *argv[]) {
     ret = fscanf(fp, "%d", &result);
     pclose(fp);
 
+    if (ret == -1) continue;
+
+    char *pc = buf;
+    while (*pc) {
+      if (*pc == 'u') *pc = ' ';
+      pc++;
+    }
     printf("%u %s\n", result, buf);
   }
   return 0;

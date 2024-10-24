@@ -15,6 +15,8 @@
 
 #include <isa.h>
 #include <memory/paddr.h>
+#include <monitor/sdb.h>
+#include <elf.h>
 
 void init_rand();
 void init_log(const char *log_file);
@@ -32,8 +34,6 @@ static void welcome() {
   Log("Build time: %s, %s", __TIME__, __DATE__);
   printf("Welcome to %s-NEMU!\n", ANSI_FMT(str(__GUEST_ISA__), ANSI_FG_YELLOW ANSI_BG_RED));
   printf("For help, type \"help\"\n");
-  // Log("Exercise: Please remove me in the source code and compile NEMU again.");
-  // assert(0);
 }
 
 #ifndef CONFIG_TARGET_AM
@@ -44,10 +44,11 @@ void sdb_set_batch_mode();
 static char *log_file = NULL;
 static char *diff_so_file = NULL;
 static char *img_file = NULL;
+static char *elf_file = NULL;
 static int difftest_port = 1234;
 
 static long load_img() {
-  if (img_file == NULL) {
+  if (img_file == NULL || strlen(img_file) == 0) {
     Log("No image is given. Use the default build-in image.");
     return 4096; // built-in image size
   }
@@ -68,6 +69,83 @@ static long load_img() {
   return size;
 }
 
+static bool parse_elf() {
+  if (elf_file == NULL || strlen(elf_file) == 0) {
+    Log("No ELF file is given.");
+    return false;
+  }
+  FILE *fp = fopen(elf_file, "rb");
+  Assert(fp, "Can not open '%s'", elf_file);
+
+  size_t n_read;
+
+  // read ELF header
+  Elf32_Ehdr ehdr;
+  n_read = fread(&ehdr, sizeof(ehdr), 1, fp);
+  if (ehdr.e_ident[EI_MAG0] != ELFMAG0 ||
+    ehdr.e_ident[EI_MAG1] != ELFMAG1 ||
+    ehdr.e_ident[EI_MAG2] != ELFMAG2 ||
+    ehdr.e_ident[EI_MAG3] != ELFMAG3) {
+    Log("%s is not a valid ELF file.", elf_file);
+    fclose(fp);
+    return false;
+  }
+
+  // scan section headers
+  Elf32_Off symtab_offset = 0;
+  Elf32_Word symtab_size = 0;
+  Elf32_Word strtab_index = 0;
+  for (int i = 0; i < ehdr.e_shnum; ++i) {
+    fseek(fp, ehdr.e_shoff + i * ehdr.e_shentsize, SEEK_SET);
+    Elf32_Shdr shdr;
+    n_read = fread(&shdr, sizeof(shdr), 1, fp);
+    if (shdr.sh_type == SHT_SYMTAB) {
+      symtab_offset = shdr.sh_offset;
+      symtab_size = shdr.sh_size;
+      strtab_index = shdr.sh_link;
+      break;
+    }
+  }
+
+  if (symtab_offset != 0 && symtab_size != 0) {
+    fseek(fp, ehdr.e_shoff + strtab_index * ehdr.e_shentsize, SEEK_SET);
+    Elf32_Shdr shdr;
+    n_read = fread(&shdr, sizeof(shdr), 1, fp);
+    Elf32_Off strtab_offset = shdr.sh_offset;
+    // parse symbol table
+    for (Elf32_Word i = 0; i < symtab_size / sizeof(Elf32_Sym); ++i) {
+      fseek(fp, symtab_offset + i * sizeof(Elf32_Sym), SEEK_SET);
+      Elf32_Sym sym;
+      n_read = fread(&sym, sizeof(sym), 1, fp);
+      if (ELF32_ST_TYPE(sym.st_info) != STT_FUNC) continue;
+      // read symbol name from strtab
+      char *sym_name = (char *)malloc(SYMBOL_NAME_MAX_LEN);
+      sym_name[SYMBOL_NAME_MAX_LEN - 1] = 0;
+      fseek(fp, strtab_offset + sym.st_name, SEEK_SET);
+      int n = 0;
+      while (n < SYMBOL_NAME_MAX_LEN - 1) {
+        char ch;
+        n_read = fread(&ch, 1, 1, fp);
+        sym_name[n] = ch;
+        if (ch == '\0') break;
+        ++n;
+      }
+      register_function(sym_name, sym.st_value, sym.st_value + sym.st_size);
+      free(sym_name);
+    }
+  } else {
+      Log("Symbol table not found.");
+      fclose(fp);
+      return false;
+  }
+
+  fclose(fp);
+  n_read++;
+  print_function_info();
+
+  return true;
+}
+
 static int parse_args(int argc, char *argv[]) {
   const struct option table[] = {
     {"batch"    , no_argument      , NULL, 'b'},
@@ -75,22 +153,27 @@ static int parse_args(int argc, char *argv[]) {
     {"diff"     , required_argument, NULL, 'd'},
     {"port"     , required_argument, NULL, 'p'},
     {"help"     , no_argument      , NULL, 'h'},
+    {"img"      , required_argument, NULL,  1 },
+    {"elf"      , required_argument, NULL,  2 },
     {0          , 0                , NULL,  0 },
   };
   int o;
-  while ( (o = getopt_long(argc, argv, "-bhl:d:p:", table, NULL)) != -1) {
+  while ( (o = getopt_long(argc, argv, "bhl:d:p:", table, NULL)) != -1) {
     switch (o) {
       case 'b': sdb_set_batch_mode(); break;
       case 'p': sscanf(optarg, "%d", &difftest_port); break;
       case 'l': log_file = optarg; break;
       case 'd': diff_so_file = optarg; break;
-      case 1: img_file = optarg; return 0;
+      case 1: img_file = optarg; break;
+      case 2: elf_file = optarg; break;
       default:
         printf("Usage: %s [OPTION...] IMAGE [args]\n\n", argv[0]);
         printf("\t-b,--batch              run with batch mode\n");
         printf("\t-l,--log=FILE           output log to FILE\n");
         printf("\t-d,--diff=REF_SO        run DiffTest with reference REF_SO\n");
         printf("\t-p,--port=PORT          run DiffTest with port PORT\n");
+        printf("\t--img=IMAGE_FILE        load image file\n");
+        printf("\t--elf=ELF_FILE        load ELF file\n");
         printf("\n");
         exit(0);
     }
@@ -121,6 +204,9 @@ void init_monitor(int argc, char *argv[]) {
 
   /* Load the image to memory. This will overwrite the built-in image. */
   long img_size = load_img();
+
+  /* Parse function name and address from ELF file.*/
+  parse_elf();
 
   /* Initialize differential testing. */
   init_difftest(diff_so_file, img_size, difftest_port);
