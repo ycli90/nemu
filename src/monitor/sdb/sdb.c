@@ -17,7 +17,8 @@
 #include <cpu/cpu.h>
 #include <readline/readline.h>
 #include <readline/history.h>
-#include "sdb.h"
+#include <monitor/sdb.h>
+#include <memory/vaddr.h>
 
 static int is_batch_mode = false;
 
@@ -49,7 +50,173 @@ static int cmd_c(char *args) {
 
 
 static int cmd_q(char *args) {
+  if (nemu_state.state != NEMU_END && nemu_state.state != NEMU_ABORT) {
+    nemu_state.state = NEMU_QUIT;
+  }
   return -1;
+}
+
+static int cmd_si(char *args) {
+  uint64_t step = 1;
+  if (args != NULL) {
+    char *str = strtok(args, " ");
+    int n = atoi(str);
+    if (n == 0) {
+      printf("si parse error\n");
+      return 0;
+    } else {
+      if (strtok(NULL, " ") != NULL) {
+        printf("si parse error\n");
+        return 0;
+      }
+      step = n;
+    }
+  }
+  printf("exec %lu steps\n", step);
+  cpu_exec(step);
+  return 0;
+}
+
+static int cmd_info(char *args) {
+  char *str = strtok(args, " ");
+  if (str == NULL || strtok(NULL, " ") != NULL) {
+    printf("cmd info parse error\n");
+    return 0;
+  }
+  if (strcmp(str, "r") == 0) {
+    isa_reg_display();
+  } else if (strcmp(str, "w") == 0) {
+    display_wp();
+  } else {
+    printf("unsupported subcmd %s\n", str);
+    return 0;
+  }
+  return 0;
+}
+
+static int cmd_p(char *args) {
+  bool success = true;
+  word_t result = expr(args, &success);
+  if (success) {
+    printf("result: " FMT_WORD "(hex) %d(dec) %u(unsigned dec)\n", result, result, result);
+  } else {
+    printf("eval failed\n");
+  }
+  return 0;
+}
+
+void exam_memory(vaddr_t address, int n) {
+  while (n > 0) {
+    printf(FMT_PADDR ":", address);
+    for (int i = 0; i < 8 && n > 0; i++, n--) {
+      printf("  0x%02" PRIx8, vaddr_read(address + i, 1));
+    }
+    printf("\n");
+    address += 8;
+  }
+}
+
+static int cmd_x(char *args) {
+  if (args == NULL) {
+    printf("format: x N <expr>\n");
+    return 0;
+  }
+  char *args_end = args + strlen(args);
+  char *str = strtok(args, " ");
+  if (str == NULL) {
+    printf("command x miss argument N\n");
+    return 0;
+  }
+  int n = atoi(str);
+  if (n == 0) {
+    printf("parse N error\n");
+    return 0;
+  }
+  str += strlen(str) + 1;
+  if (str > args_end) {
+    printf("command x miss start address\n");
+    return 0;
+  }
+  bool success = true;
+  word_t address = expr(str, &success);
+  if (!success) {
+    printf("address expression error\n");
+    return 0;
+  }
+  printf("cmd x %d " FMT_PADDR "\n", n, address);
+  exam_memory(address, n);
+  return 0;
+}
+
+static int cmd_w(char *args) {
+  add_wp(args);
+  return 0;
+}
+
+static int cmd_d(char *args) {
+  if (args == NULL) {
+    printf("format: d N\n");
+    return 0;
+  }
+  int n = atoi(args);
+  if (n == 0) {
+    printf("invalid watchpoint ID\n");
+    return 0;
+  }
+  del_wp(n);
+  return 0;
+}
+
+static int cmd_itrace(char *args) {
+  inst_history_print();
+  return 0;
+}
+
+static int cmd_ftrace(char *args) {
+  print_function_trace();
+  return 0;
+}
+
+static int cmd_fstack(char *args) {
+  print_function_stack();
+  return 0;
+}
+
+static int cmd_test_expr(char *args) {
+  char file_name[256];
+  sscanf(args, "%s", file_name);
+  FILE *fp = fopen(file_name, "r");
+  if (fp == NULL) {
+    printf("test file not found\n");
+    return 1;
+  }
+  word_t ref_result;
+  char *buf = malloc(65536);
+  int total = 0, passed = 0, failed = 0;
+  while (fscanf(fp, "%u%[^\n]s", &ref_result, buf) == 2) {
+    total++;
+    _Log(ANSI_FMT("case #%d\n", ANSI_FG_CYAN), total);
+    bool success = true;
+    word_t result = expr(buf, &success);
+    if (success) {
+      if (result == ref_result) {
+        printf("test passed. ");
+        fprintf(stderr, "test %d\n", total);
+        passed++;
+      } else {
+        printf("test failed. ");
+        fprintf(stderr, "expr: %s, result=%u, ref=%u\n", buf, result, ref_result);
+        failed++;
+      }
+      printf("result=%u ref_result=%u\n", result, ref_result);
+    } else {
+      printf("eval failed\n");
+    }
+  }
+  fclose(fp);
+  free(buf);
+  printf("total = %d, passed = %d, failed = %d\n", total, passed, failed);
+  return 0;
 }
 
 static int cmd_help(char *args);
@@ -62,6 +229,16 @@ static struct {
   { "help", "Display information about all supported commands", cmd_help },
   { "c", "Continue the execution of the program", cmd_c },
   { "q", "Exit NEMU", cmd_q },
+  { "si", "Single step N times", cmd_si },
+  { "info", "Show info", cmd_info },
+  { "p", "Evaluate expression", cmd_p },
+  { "x", "Show memory", cmd_x },
+  { "w", "Set watch point", cmd_w },
+  { "d", "Delete watch point", cmd_d },
+  { "itrace", "Print instruction trace", cmd_itrace },
+  { "ftrace", "Print function trace", cmd_ftrace },
+  { "fstack", "Print function stack", cmd_fstack },
+  { "test_expr", "Test expression evaluation", cmd_test_expr },
 
   /* TODO: Add more commands */
 
