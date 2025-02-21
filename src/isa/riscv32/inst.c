@@ -129,7 +129,17 @@ static int decode_exec(Decode *s) {
   INSTPAT("0000001 ????? ????? 110 ????? 01100 11", rem,    R, R(rd) = (int32_t)src1 % (int32_t)src2);
   INSTPAT("0000001 ????? ????? 111 ????? 01100 11", remu,   R, R(rd) = src1 % src2);
 
+  INSTPAT("0000000 00000 00000 000 00000 11100 11", ecall  , N, s->dnpc = isa_raise_intr(R(17), s->pc));  // R(17) is $a7
   INSTPAT("0000000 00001 00000 000 00000 11100 11", ebreak , N, NEMUTRAP(s->pc, R(10))); // R(10) is $a0
+  INSTPAT("0011000 00010 00000 000 00000 11100 11", mret ,   N, s->dnpc = *p_csr_by_name("mepc"));
+
+  INSTPAT("??????? ????? ????? 001 ????? 11100 11", csrrw ,  I, IFDEF(CONFIG_CSR_TRACE, printf("csrrw %#x, rs %d, src 0x%08x, rd %d\n", imm, rs1, src1, rd)); R(rd) = *p_csr_by_address(imm); *p_csr_by_address(imm) = src1);
+  INSTPAT("??????? ????? ????? 010 ????? 11100 11", csrrs ,  I, IFDEF(CONFIG_CSR_TRACE, printf("csrrs %#x, rs %d, src 0x%08x, rd %d\n", imm, rs1, src1, rd)); R(rd) = *p_csr_by_address(imm); *p_csr_by_address(imm) |= src1);
+  INSTPAT("??????? ????? ????? 011 ????? 11100 11", csrrc ,  I, IFDEF(CONFIG_CSR_TRACE, printf("csrrc %#x, rs %d, src 0x%08x, rd %d\n", imm, rs1, src1, rd)); R(rd) = *p_csr_by_address(imm); *p_csr_by_address(imm) &= ~src1);
+  INSTPAT("??????? ????? ????? 101 ????? 11100 11", csrrwi , I, IFDEF(CONFIG_CSR_TRACE, printf("csrrwi %#x, uimm 0x%08x, rd %d\n", imm, rs1, rd)); R(rd) = *p_csr_by_address(imm); *p_csr_by_address(imm) = (uint32_t)rs1);
+  INSTPAT("??????? ????? ????? 110 ????? 11100 11", csrrsi , I, IFDEF(CONFIG_CSR_TRACE, printf("csrrsi %#x, uimm 0x%08x, rd %d\n", imm, rs1, rd)); R(rd) = *p_csr_by_address(imm); *p_csr_by_address(imm) |= (uint32_t)rs1);
+  INSTPAT("??????? ????? ????? 111 ????? 11100 11", csrrci , I, IFDEF(CONFIG_CSR_TRACE, printf("csrrci %#x, uimm 0x%08x, rd %d\n", imm, rs1, rd)); R(rd) = *p_csr_by_address(imm); *p_csr_by_address(imm) &= ~(uint32_t)rs1);
+
   INSTPAT("??????? ????? ????? ??? ????? ????? ??", inv    , N, INV(s->pc));
 
   INSTPAT_END();

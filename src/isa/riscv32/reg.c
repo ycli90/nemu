@@ -23,12 +23,18 @@ const char *regs[] = {
   "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
   "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6"
 };
+const char *csr_name[NR_CSR] = {"mstatus", "mtvec", "mepc", "mcause"};
+const word_t csr_addr[NR_CSR] = {0x300, 0x305, 0x341, 0x342};
 
 void isa_reg_display() {
   printf("%-8s" FMT_WORD "\n", "pc", cpu.pc);
   for (int idx = 0; idx < RISCV_GPR_NUM; idx++) {
     word_t val = gpr(idx);
     printf("%-8s" FMT_WORD "\n", reg_name(idx), val);
+  }
+  for (int idx = 0; idx < NR_CSR; idx++) {
+    word_t val = csr(idx);
+    printf("%-8s" FMT_WORD "\n", csr_name[idx], val);
   }
 }
 
@@ -44,6 +50,12 @@ word_t isa_reg_str2val(const char *s, bool *success) {
   if (strcmp(s, "pc") == 0) {
     *success = true;
     return cpu.pc;
+  }
+  for (int idx = 0; idx < NR_CSR; idx++) {
+    if (strcmp(s, csr_name[idx]) == 0) {
+      *success = true;
+      return csr(idx);
+    }
   }
   return 0;
 }

@@ -16,21 +16,22 @@
 #include <common.h>
 #include <monitor/sdb.h>
 
-#define FUNCTION_LIST_SIZE 2000
+#define FUNCTION_LIST_SIZE 3000
 #define FUNCTION_STACK_SIZE 100
 #define FUNCTION_TRACE_SIZE 100
-#define FUNCTION_CALL_STRING "Call <%s @%#8x> from <%s>\n"
+#define FUNCTION_CALL_STRING "Call %#8x <%s> from <%s>\n"
 #define FUNCTION_RET_STRING "Ret  <%s> to <%s @%#8x>\n"
 struct function_info function_list[FUNCTION_LIST_SIZE];
 static int n_function = 0;
 struct function_trace_item function_trace[FUNCTION_TRACE_SIZE];
 int n_function_trace = 0;
 int function_trace_current_index = 0;
-int function_stack[FUNCTION_STACK_SIZE];
+struct function_trace_item function_stack[FUNCTION_STACK_SIZE];
 int n_function_stack = 0;
 
-void register_function(const char *name, word_t start_address, word_t end_address) {
+void register_function(bool is_function, const char *name, word_t start_address, word_t end_address) {
   Assert(n_function < FUNCTION_LIST_SIZE, "function info list full");
+  function_list[n_function].is_function = is_function;
   function_list[n_function].start_address = start_address;
   function_list[n_function].end_address = end_address;
   strcpy(function_list[n_function].name, name);
@@ -47,11 +48,11 @@ void print_function_info() {
 int search_function(word_t address) {
   for (int i = 0; i < n_function; ++i) {
     struct function_info *fip = function_list + i;
-    if (address >= fip->start_address && address < fip->end_address) {
+    if ((fip->is_function && address >= fip->start_address && address < fip->end_address)
+      || (!fip->is_function && address == fip->start_address)) {
       return i;
     }
   }
-  panic("unknown function at address %x", address);
   return -1;
 }
 
@@ -66,19 +67,19 @@ void add_function_trace(word_t pc, word_t target_address, enum function_trace_ty
   ftip->target_function_index = target_function_index;
   if (type == FUNCTION_CALL) {
     ftip->level = n_function_stack;
-    Assert(target_address == function_list[target_function_index].start_address, "Call function address not equal to function start address");
+    if (target_function_index != -1) {
+      Assert(target_address == function_list[target_function_index].start_address, "Call function address not equal to function start address");
+    }
     Assert(n_function_stack < FUNCTION_STACK_SIZE, "function stack full");
-    function_stack[n_function_stack++] = target_function_index;
+    function_stack[n_function_stack++] = *ftip;
   } else {
     if (n_function_stack == 0) panic("return from empty function stack");
     --n_function_stack;
     ftip->level = n_function_stack;
   }
-  if (type== FUNCTION_CALL) {
-    log_write("[ftrace] %#8x: " FUNCTION_CALL_STRING, pc, function_list[target_function_index].name, target_address, function_list[current_function_index].name);
-  } else {
-    log_write("[ftrace] %#8x: " FUNCTION_RET_STRING, pc, function_list[current_function_index].name, function_list[target_function_index].name, target_address);
-  }
+  log_write("[ftrace]: %s %#8x <%s> from %#8x <%s>\n", ftip->type == FUNCTION_CALL ? "Call" : "Ret ",
+    ftip->target_address, ftip->target_function_index  >= 0 ? function_list[ftip->target_function_index ].name : "",
+    ftip->pc,             ftip->current_function_index >= 0 ? function_list[ftip->current_function_index].name : "");
   function_trace_current_index = (function_trace_current_index + 1) % FUNCTION_TRACE_SIZE;
   ++n_function_trace;
   Assert(n_function_trace >= 0, "function trace count overflow");
@@ -91,17 +92,35 @@ void print_function_trace() {
     struct function_trace_item *ftip = &function_trace[ind];
     printf("%#8x: ", ftip->pc);
     for (int j = 0; j < 2 * ftip->level; ++j) putchar(' ');
-    if (ftip->type== FUNCTION_CALL) {
-      printf(FUNCTION_CALL_STRING, function_list[ftip->target_function_index].name, ftip->target_address, function_list[ftip->current_function_index].name);
-    } else {
-      printf(FUNCTION_RET_STRING, function_list[ftip->current_function_index].name, function_list[ftip->target_function_index].name, ftip->target_address);
-    }
+    printf("%s %#8x <%s> from %#8x <%s>\n", ftip->type == FUNCTION_CALL ? "Call" : "Ret ",
+      ftip->target_address, ftip->target_function_index  >= 0 ? function_list[ftip->target_function_index ].name : "",
+      ftip->pc,             ftip->current_function_index >= 0 ? function_list[ftip->current_function_index].name : "");
     ind = (ind + 1) % FUNCTION_TRACE_SIZE;
   }
 }
 
 void print_function_stack() {
   for (int i = 0; i < n_function_stack; ++i) {
-    printf("0x%8x %s\n", function_list[function_stack[i]].start_address, function_list[function_stack[i]].name);
+    printf("Call %#8x <%s> from %#8x <%s>\n",
+      function_stack[i].target_address, function_stack[i].target_function_index  >= 0 ? function_list[function_stack[i].target_function_index ].name : "",
+      function_stack[i].pc,             function_stack[i].current_function_index >= 0 ? function_list[function_stack[i].current_function_index].name : "");
+  }
+}
+
+void function_stack_save(FILE *fp) {
+  fwrite(&n_function_stack, sizeof(int), 1, fp);
+  fwrite(function_stack, sizeof(struct function_trace_item), n_function_stack, fp);
+}
+
+void function_stack_load(FILE *fp) {
+  size_t ret = fread(&n_function_stack, sizeof(int), 1, fp);
+  if (ret != 1) {
+    printf("read n_function_stack failed, ret = %lu\n", ret);
+    return;
+  }
+  ret = fread(function_stack, sizeof(struct function_trace_item), n_function_stack, fp);
+  if (ret != n_function_stack) {
+    printf("read function_stack failed, ret = %lu\n", ret);
+    return;
   }
 }

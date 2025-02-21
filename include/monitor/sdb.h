@@ -36,11 +36,12 @@ void inst_history_print();
 // function trace
 #define SYMBOL_NAME_MAX_LEN 128
 struct function_info {
+    bool is_function;
     char name[SYMBOL_NAME_MAX_LEN];
     word_t start_address;
     word_t end_address;
 };
-void register_function(const char *name, word_t start_address, word_t end_address);
+void register_function(bool is_function, const char *name, word_t start_address, word_t end_address);
 void print_function_info();
 int search_function(word_t address);
 
@@ -57,4 +58,6 @@ struct function_trace_item {
 void add_function_trace(word_t pc, word_t address, enum function_trace_type type);
 void print_function_trace();
 void print_function_stack();
+void function_stack_save(FILE *fp);
+void function_stack_load(FILE *fp);
 #endif

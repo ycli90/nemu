@@ -44,7 +44,7 @@ void sdb_set_batch_mode();
 static char *log_file = NULL;
 static char *diff_so_file = NULL;
 static char *img_file = NULL;
-static char *elf_file = NULL;
+static char *elf_files = NULL;
 static int difftest_port = 1234;
 
 static long load_img() {
@@ -69,15 +69,12 @@ static long load_img() {
   return size;
 }
 
-static bool parse_elf() {
-  if (elf_file == NULL || strlen(elf_file) == 0) {
-    Log("No ELF file is given.");
-    return false;
-  }
+static bool parse_elf(const char *elf_file) {
+  Log("Parse ELF file %s", elf_file);
   FILE *fp = fopen(elf_file, "rb");
   Assert(fp, "Can not open '%s'", elf_file);
 
-  size_t n_read;
+  size_t __attribute__((unused)) n_read;
 
   // read ELF header
   Elf32_Ehdr ehdr;
@@ -130,7 +127,7 @@ static bool parse_elf() {
         if (ch == '\0') break;
         ++n;
       }
-      register_function(sym_name, sym.st_value, sym.st_value + sym.st_size);
+      register_function(ELF32_ST_TYPE(sym.st_info) == STT_FUNC, sym_name, sym.st_value, sym.st_value + sym.st_size);
       free(sym_name);
     }
   } else {
@@ -140,10 +137,21 @@ static bool parse_elf() {
   }
 
   fclose(fp);
-  n_read++;
-  print_function_info();
-
   return true;
+}
+
+static void parse_elfs() {
+  if (elf_files == NULL || strlen(elf_files) == 0) {
+    Log("No ELF file is given.");
+    return;
+  }
+  const char *delim = ",";
+  char *elf_file = strtok(elf_files, delim);
+  while (elf_file != NULL) {
+    parse_elf(elf_file);
+    elf_file = strtok(NULL, delim);
+  }
+  print_function_info();
 }
 
 static int parse_args(int argc, char *argv[]) {
@@ -165,7 +173,7 @@ static int parse_args(int argc, char *argv[]) {
       case 'l': log_file = optarg; break;
       case 'd': diff_so_file = optarg; break;
       case 1: img_file = optarg; break;
-      case 2: elf_file = optarg; break;
+      case 2: elf_files = optarg; break;
       default:
         printf("Usage: %s [OPTION...] IMAGE [args]\n\n", argv[0]);
         printf("\t-b,--batch              run with batch mode\n");
@@ -206,7 +214,7 @@ void init_monitor(int argc, char *argv[]) {
   long img_size = load_img();
 
   /* Parse function name and address from ELF file.*/
-  parse_elf();
+  parse_elfs();
 
   /* Initialize differential testing. */
   init_difftest(diff_so_file, img_size, difftest_port);

@@ -166,6 +166,16 @@ config FTRACE
   bool "Enable function tracer"
   default n
 
+config ETRACE
+  depends on TRACE && TARGET_NATIVE_ELF && ENGINE_INTERPRETER
+  bool "Enable exception tracer"
+  default n
+
+config CSR_TRACE
+  depends on TRACE && TARGET_NATIVE_ELF && ENGINE_INTERPRETER
+  bool "Enable csr access tracer"
+  default n
+
 config WATCHPOINT
   bool "Enable watchpoint"
   default y

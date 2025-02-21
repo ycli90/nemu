@@ -19,6 +19,8 @@
 #include <readline/history.h>
 #include <monitor/sdb.h>
 #include <memory/vaddr.h>
+#include <memory/paddr.h>
+#include <cpu/difftest.h>
 
 static int is_batch_mode = false;
 
@@ -182,6 +184,69 @@ static int cmd_fstack(char *args) {
   return 0;
 }
 
+static int cmd_detach(char *args) {
+  difftest_detach();
+  return 0;
+}
+
+static int cmd_attach(char *args) {
+  difftest_attach();
+  return 0;
+}
+
+static int cmd_save(char *args) {
+  if (args == NULL) {
+    printf("need args\n");
+    return 0;
+  }
+  char *file_name = strtok(args, " ");
+  if (file_name == NULL) {
+    printf("need file path\n");
+    return 0;
+  }
+  FILE *fp = fopen(file_name, "wb");
+  if (fp == NULL) {
+    printf("cannot open file %s\n", file_name);
+    return 0;
+  }
+  fwrite(&cpu, sizeof(cpu), 1, fp);
+  fwrite(guest_to_host(CONFIG_MBASE), 1, CONFIG_MSIZE, fp);
+  function_stack_save(fp);
+  fclose(fp);
+  return 0;
+}
+
+static int cmd_load(char *args) {
+  if (args == NULL) {
+    printf("need args\n");
+    return 0;
+  }
+  char *file_name = strtok(args, " ");
+  if (file_name == NULL) {
+    printf("need file path\n");
+    return 0;
+  }
+  FILE *fp = fopen(file_name, "rb");
+  if (fp == NULL) {
+    printf("cannot open file %s\n", file_name);
+    return 0;
+  }
+  size_t ret = fread(&cpu, sizeof(cpu), 1, fp);
+  if (ret < 1) {
+    printf("read cpu failed, ret = %lu\n", ret);
+    return 0;
+  }
+  ret = fread(guest_to_host(CONFIG_MBASE), 1, CONFIG_MSIZE, fp);
+  if (ret < CONFIG_MSIZE) {
+    printf("read mem failed, ret = %lu\n", ret);
+    return 0;
+  }
+  function_stack_load(fp);
+  fclose(fp);
+  difftest_load();
+  return 0;
+}
+
 static int cmd_test_expr(char *args) {
   char file_name[256];
   sscanf(args, "%s", file_name);
@@ -238,6 +303,10 @@ static struct {
   { "itrace", "Print instruction trace", cmd_itrace },
   { "ftrace", "Print function trace", cmd_ftrace },
   { "fstack", "Print function stack", cmd_fstack },
+  { "detach", "Disable difftest", cmd_detach},
+  { "attach", "Enable difftest", cmd_attach},
+  { "save", "Save snapshot", cmd_save},
+  { "load", "Load from snapshot", cmd_load},
   { "test_expr", "Test expression evaluation", cmd_test_expr },
 
   /* TODO: Add more commands */
