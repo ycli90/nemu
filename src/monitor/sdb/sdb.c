@@ -111,7 +111,7 @@ void exam_memory(vaddr_t address, int n) {
   while (n > 0) {
     printf(FMT_PADDR ":", address);
     for (int i = 0; i < 8 && n > 0; i++, n--) {
-      printf("  0x%02" PRIx8, vaddr_read(address + i, 1));
+      printf(" %02" PRIx8, vaddr_read(address + i, 1));
     }
     printf("\n");
     address += 8;

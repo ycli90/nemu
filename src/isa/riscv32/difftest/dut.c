@@ -20,17 +20,18 @@
 #include <cpu/cpu.h>
 
 bool isa_difftest_checkregs(CPU_state *ref_r, vaddr_t pc) {
+  bool result = true;
+  if (cpu.pc != ref_r->pc) {
+    printf("difftest failed, pc ref: " FMT_WORD ", dut: " FMT_WORD "\n", ref_r->pc, cpu.pc);
+    result = false;
+  }
   for (int i = 0; i < RISCV_GPR_NUM; i++) {
     if (cpu.gpr[i] != ref_r->gpr[i]) {
       printf("difftest failed, gpr[%d] ref: " FMT_WORD ", dut: " FMT_WORD "\n", i, ref_r->gpr[i], cpu.gpr[i]);
-      return false;
+      result = false;
     }
   }
-  if (cpu.pc != ref_r->pc) {
-    printf("difftest failed, pc ref: " FMT_WORD ", dut: " FMT_WORD "\n", ref_r->pc, cpu.pc);
-    return false;
-  }
-  return true;
+  return result;
 }
 
 void isa_difftest_attach() {

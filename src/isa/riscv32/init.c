@@ -34,7 +34,9 @@ static void restart() {
   /* The zero register is always 0. */
   cpu.gpr[0] = 0;
 
-  *p_csr_by_name("mstatus") = 0x1800;
+  // cpu.csr[CSR_mstatus] = 0x1800;
+  init_csr_addr_map();
+  cpu.mode = MODE_M;
 }
 
 void init_isa() {

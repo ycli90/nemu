@@ -16,6 +16,7 @@
 #include <isa.h>
 #include "local-include/reg.h"
 #include <difftest-def.h>
+#include <cpu/difftest.h>
 
 const char *regs[] = {
   "$0", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
@@ -23,8 +24,17 @@ const char *regs[] = {
   "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
   "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6"
 };
-const char *csr_name[NR_CSR] = {"mstatus", "mtvec", "mepc", "mcause"};
-const word_t csr_addr[NR_CSR] = {0x300, 0x305, 0x341, 0x342};
+
+#define CSR_NAME_INIT(x) [ CSR_ENUM(x) ] = #x,
+const char *csr_name[NR_CSR] = {CSRS(CSR_NAME_INIT)};
+const word_t csr_addr[NR_CSR] = {0x300, 0x305, 0x341, 0x342, 0x180, 0x340};
+int csr_addr_map[0x1000];
+
+void init_csr_addr_map() {
+  for (int i = 0; i < NR_CSR; i++) {
+    csr_addr_map[csr_addr[i]] = i;
+  }
+}
 
 void isa_reg_display() {
   printf("%-8s" FMT_WORD "\n", "pc", cpu.pc);
@@ -33,9 +43,10 @@ void isa_reg_display() {
     printf("%-8s" FMT_WORD "\n", reg_name(idx), val);
   }
   for (int idx = 0; idx < NR_CSR; idx++) {
-    word_t val = csr(idx);
+    word_t val = cpu.csr[idx];
     printf("%-8s" FMT_WORD "\n", csr_name[idx], val);
   }
+  printf("privilege: %d\n", cpu.mode);
 }
 
 word_t isa_reg_str2val(const char *s, bool *success) {
@@ -54,7 +65,7 @@ word_t isa_reg_str2val(const char *s, bool *success) {
   for (int idx = 0; idx < NR_CSR; idx++) {
     if (strcmp(s, csr_name[idx]) == 0) {
       *success = true;
-      return csr(idx);
+      return cpu.csr[idx];
     }
   }
   return 0;

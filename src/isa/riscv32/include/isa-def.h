@@ -17,19 +17,19 @@
 #define __ISA_RISCV_H__
 
 #include <common.h>
-#define NR_CSR 4
+#include "../local-include/reg.h"
 
 typedef struct {
   word_t gpr[MUXDEF(CONFIG_RVE, 16, 32)];
   vaddr_t pc;
   word_t csr[NR_CSR]; // mstatus, mtvec, mepc, mcause
+  int mode;
+  bool INTR;
 } MUXDEF(CONFIG_RV64, riscv64_CPU_state, riscv32_CPU_state);
 
 // decode
 typedef struct {
   uint32_t inst;
 } MUXDEF(CONFIG_RV64, riscv64_ISADecodeInfo, riscv32_ISADecodeInfo);
-
-#define isa_mmu_check(vaddr, len, type) (MMU_DIRECT)
 
 #endif

@@ -49,7 +49,7 @@ static struct rule {
   {"\\)", ')'},         // right parenthesis
   {"0[xX][0-9a-fA-F]+", TK_HEX_NUMBER},  // hexadecimal number
   {"[[:digit:]]+", TK_NUMBER},           // decimal number
-  {"\\$[a-z]+", TK_REG},
+  {"\\$[a-z0-9]+", TK_REG},
   {"==", TK_EQ},        // equal
   {"!=", TK_NOT_EQ},    // not equal
   {"&&", TK_AND},       // logical and
